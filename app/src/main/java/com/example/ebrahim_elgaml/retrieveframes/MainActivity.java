@@ -1,5 +1,6 @@
 package com.example.ebrahim_elgaml.retrieveframes;
 
+import android.app.ProgressDialog;
 import android.graphics.Bitmap;
 import android.media.MediaMetadata;
 import android.media.MediaMetadataRetriever;
@@ -8,6 +9,7 @@ import android.os.Environment;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import java.io.File;
@@ -25,6 +27,9 @@ public class MainActivity extends AppCompatActivity {
     private int framesCount = 0;
     private MyThread th;
     private TextView myTextView;
+    private ImageView firstImage;
+    private ImageView secondImage;
+    private ProgressDialog progressDialog;
 
 
     @Override
@@ -37,6 +42,12 @@ public class MainActivity extends AppCompatActivity {
         File videoFile=new File(Environment.getExternalStorageDirectory().getAbsolutePath(),"test.mp4");
         Uri videoFileUri = Uri.parse(videoFile.toString());
         myTextView = (TextView)findViewById(R.id.textView);
+        firstImage = (ImageView) findViewById(R.id.imageView);
+        secondImage = (ImageView) findViewById(R.id.imageView2);
+        progressDialog = new ProgressDialog(this);
+        progressDialog = ProgressDialog.show(MainActivity.this, "",
+                "Loading ...", true);
+        progressDialog.setCancelable(true);
         retriever = new MediaMetadataRetriever();
         th = new MyThread();
         th.setUrl(videoFile.getAbsolutePath());
@@ -46,7 +57,7 @@ public class MainActivity extends AppCompatActivity {
        // getVideoFrames(videoFile.getAbsolutePath());
 
 //        Log.i(TAG, "Width : " + p.getWidth() + "Height : " + p.getHeight());
-        Log.i(TAG, "FrAMES CoUNT  : " + frames.size());
+  //      Log.i(TAG, "FrAMES CoUNT  : " + frames.size());
     }
     public class MyThread extends Thread{
         private String url ;
@@ -65,34 +76,49 @@ public class MainActivity extends AppCompatActivity {
             threadTextView = t;
         }
         public void run(){
+
             setVideoProbe(12.08, 20.08);
             getVideoFrames(url);
-            Log.i(TAG, "FINISH THREAD");
+            finalizeThread();
+        }
+        public void finalizeThread(){
+        //    Log.i(TAG, "FINISH THREAD");
             threadTextView.post(new Runnable() {
                 @Override
                 public void run() {
                     threadTextView.setText("ARRAY LENGTH IS : " + threadList.size());
+                    progressDialog.dismiss();
                 }
             });
-
-
+            firstImage.post(new Runnable() {
+                @Override
+                public void run() {
+                    firstImage.setImageBitmap(threadList.get(0));
+                }
+            });
+            secondImage.post(new Runnable() {
+                @Override
+                public void run() {
+                    secondImage.setImageBitmap(threadList.get(199));
+                }
+            });
         }
         public void setVideoProbe(double d, double f){
             durationInMicroSeconds = d;
             frameRate = f;
             step = MICRO_SECODND/frameRate;
-            Log.i(TAG, "step : " + step);
+           // Log.i(TAG, "step : " + step);
 
         }
         public void getVideoFrames(String s){
             retriever.setDataSource(s);
-            Log.i(TAG, "LOOP LIMIT : " + durationInMicroSeconds * MICRO_SECODND );
+          //  Log.i(TAG, "LOOP LIMIT : " + durationInMicroSeconds * MICRO_SECODND );
 
             for(long seconds = 0 ; seconds < durationInMicroSeconds * MICRO_SECODND ; seconds += step){
                 frames.add(retriever.getFrameAtTime(seconds, MediaMetadataRetriever.OPTION_CLOSEST));
                 framesCount ++;
-                Log.i(TAG, "SECODS : " + seconds);
-                Log.i(TAG, "FRAMES COUNT IN LOOP : " + frames.size());
+                //Log.i(TAG, "SECODS : " + seconds);
+               // Log.i(TAG, "FRAMES COUNT IN LOOP : " + frames.size());
             }
 
         }
