@@ -15,8 +15,18 @@ import android.util.Log;
 import android.view.Surface;
 import android.view.TextureView;
 import android.widget.TextView;
+
+import com.example.ebrahim_elgaml.retrieveframes.media.FrameGrabber;
+
 import java.io.File;
 import java.util.ArrayList;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends AppCompatActivity {
     private final String TAG = "MYRETRIEVERDEBUG";
@@ -34,24 +44,45 @@ public class MainActivity extends AppCompatActivity {
     private ArrayList<FrameRetrieverThread> retrieverThreads = new ArrayList<>();
     private FinalizeThread finalizeThread ;
     private int threadID = 0 ;
+    private int cores = Runtime.getRuntime().availableProcessors() * 2;
+    private ExecutorService myPool ;
+    private static final int KEEP_ALIVE_TIME = 1;
+    private static final TimeUnit KEEP_ALIVE_TIME_UNIT ;
+    private  BlockingQueue<Runnable> blockingQueus;
+    static {
+
+        KEEP_ALIVE_TIME_UNIT = TimeUnit.SECONDS;
+
+    }
+    //FrameGrabber frameGabber;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        setVideoProbe(12.08, 20.08);
+        blockingQueus = new LinkedBlockingQueue<Runnable>();
+
+        myPool = new ThreadPoolExecutor(
+                        cores/2,
+                        cores,
+                        1,
+                        TimeUnit.MILLISECONDS,
+                        new LinkedBlockingQueue<Runnable>()
+                );
         File videoFile=new File(Environment.getExternalStorageDirectory().getAbsolutePath(),"test.mp4");
-        initRetriever(videoFile.getAbsolutePath(), 12.08, 30.08);
+        initRetriever(videoFile.getAbsolutePath(), 12.08, 20.08);
+
         myTextView = (TextView)findViewById(R.id.textView);
         mRenderer = new Renderer();
         mTextureView = (TextureView) findViewById(R.id.textureView);
         mTextureView.setSurfaceTextureListener(mRenderer);
+        Log.i(TAG, "No cores : "+ cores);
 
     }
     public void initRetriever(String path, double d, double f){
         progressDialog = ProgressDialog.show(MainActivity.this, "",
                 "Loading ...", true);
-        progressDialog.setCancelable(true);
+        progressDialog.setCancelable(false);
         retriever = new MediaMetadataRetriever();
         retriever.setDataSource(path);
         setVideoProbe(d, f);
@@ -64,22 +95,24 @@ public class MainActivity extends AppCompatActivity {
     }
     public void setRetrieveThreads(){
 //
-//        for(long start = 0 ; start < durationInSeconds * MICRO_SECODND ; start += step * (FRAMES_NUMBER_PER_THREAD + 1)){
-//
-//            FrameRetrieverThread th = new FrameRetrieverThread(start, threadID);
-//            retrieverThreads.add(th);
-//        }
-        FrameRetrieverThread th = new FrameRetrieverThread(0, threadID);
-        retrieverThreads.add(th);
+        for(long start = 0 ; start < durationInSeconds * MICRO_SECODND ; start += step * (FRAMES_NUMBER_PER_THREAD + 1)){
+
+            FrameRetrieverThread th = new FrameRetrieverThread(start, threadID);
+            retrieverThreads.add(th);
+        }
+//        FrameRetrieverThread th = new FrameRetrieverThread(0, threadID);
+//        retrieverThreads.add(th);
         runThreads();
         finalizeThread = new FinalizeThread();
         finalizeThread.start();
     }
     public void runThreads(){
-        Log.i(TAG, "Number of threads : "+ retrieverThreads.size());
+        Log.i(TAG, "Number of threads : " + retrieverThreads.size());
         for(FrameRetrieverThread f : retrieverThreads){
-            f.start();
+         //  f.start();
+            myPool.execute(f);
         }
+        myPool.shutdown();
     }
     @Override
     protected void onResume() {
@@ -107,8 +140,15 @@ public class MainActivity extends AppCompatActivity {
 
         }
         public void run(){
-            for(long seconds = 0 ; seconds < durationInSeconds * MICRO_SECODND; seconds += step){
+            for(long seconds = start ; seconds < end && seconds < (durationInSeconds * MICRO_SECODND)  ; seconds += step){
                 frames.add(retriever.getFrameAtTime(seconds, MediaMetadataRetriever.OPTION_CLOSEST));
+//                Bitmap mp = frameGabber.getFrameAtTime(seconds);
+//                if(mp == null){
+//                    break;
+//                }else{
+//                    frames.add(frameGabber.getFrameAtTime(seconds));
+//                }
+
             }
             finished = true;
         }
@@ -122,13 +162,23 @@ public class MainActivity extends AppCompatActivity {
            // Log.i(TAG, "Before Stall");
             while(!checkRetrieverThreads());
           //  Log.i(TAG, "After Stall");
+            for(FrameRetrieverThread f : retrieverThreads){
+                Log.i(TAG, "TH Index : "+ f.ID);
+            }
             myTextView.post(new Runnable() {
                 @Override
                 public void run() {
                     if (checkRetrieverThreads()) {
                         myTextView.setText("ARRAY LENGTH IS : " + frames.size());
                         progressDialog.dismiss();
+
                     }
+                }
+            });
+            myTextView.post(new Runnable() {
+                @Override
+                public void run() {
+                    mRenderer.start();
                 }
             });
         }
@@ -141,6 +191,7 @@ public class MainActivity extends AppCompatActivity {
             return true;
         }
     }
+
     private  class Renderer extends Thread implements TextureView.SurfaceTextureListener {
         private Object mLock = new Object();        // guards mSurfaceTexture, mDone
         private SurfaceTexture mSurfaceTexture;
@@ -218,7 +269,8 @@ public class MainActivity extends AppCompatActivity {
 
                     }
                     Paint p=new Paint();
-                    Bitmap b = frames.get(50);
+                    Bitmap b = frames.get(100);
+
                     p.setColor(Color.RED);
                     canvas.drawBitmap(b, 0, 0, p);
                 } finally {
