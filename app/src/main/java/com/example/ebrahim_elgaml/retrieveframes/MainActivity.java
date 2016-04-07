@@ -1,5 +1,6 @@
 package com.example.ebrahim_elgaml.retrieveframes;
 
+import android.annotation.TargetApi;
 import android.app.ProgressDialog;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -8,6 +9,7 @@ import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.media.MediaMetadataRetriever;
+import android.os.Build;
 import android.os.Environment;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
@@ -15,23 +17,21 @@ import android.util.Log;
 import android.view.Surface;
 import android.view.TextureView;
 import android.widget.TextView;
-
-import com.example.ebrahim_elgaml.retrieveframes.media.FrameGrabber;
-
+import com.example.ebrahim_elgaml.retrieveframes.utils.FrameHolder;
+import com.example.ebrahim_elgaml.retrieveframes.utils.IntegerComp;
 import java.io.File;
 import java.util.ArrayList;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.Executor;
+import java.util.Comparator;
+import java.util.PriorityQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+@TargetApi(Build.VERSION_CODES.JELLY_BEAN)
 public class MainActivity extends AppCompatActivity {
     private final String TAG = "MYRETRIEVERDEBUG";
     private MediaMetadataRetriever retriever;
-    private ArrayList<Bitmap> frames = new ArrayList<Bitmap>();
     private double durationInSeconds;
     private final long MICRO_SECODND = 1000000;
     private double frameRate;
@@ -40,28 +40,22 @@ public class MainActivity extends AppCompatActivity {
     private ProgressDialog progressDialog;
     private TextureView mTextureView;
     private Renderer mRenderer;
-    private final int FRAMES_NUMBER_PER_THREAD = 100;
+    private final int FRAMES_NUMBER_PER_THREAD = 80;
     private ArrayList<FrameRetrieverThread> retrieverThreads = new ArrayList<>();
     private FinalizeThread finalizeThread ;
     private int threadID = 0 ;
     private int cores = Runtime.getRuntime().availableProcessors() * 2;
     private ExecutorService myPool ;
-    private static final int KEEP_ALIVE_TIME = 1;
-    private static final TimeUnit KEEP_ALIVE_TIME_UNIT ;
-    private  BlockingQueue<Runnable> blockingQueus;
-    static {
+    private Comparator<FrameHolder> comparator = new IntegerComp();
+    private PriorityQueue<FrameHolder> myQueue ;
+    private GCThread gcThread;
 
-        KEEP_ALIVE_TIME_UNIT = TimeUnit.SECONDS;
-
-    }
-    //FrameGrabber frameGabber;
-
+    private File videoFile;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        blockingQueus = new LinkedBlockingQueue<Runnable>();
-
+        myTextView = (TextView)findViewById(R.id.textView);
         myPool = new ThreadPoolExecutor(
                         cores/2,
                         cores,
@@ -69,16 +63,19 @@ public class MainActivity extends AppCompatActivity {
                         TimeUnit.MILLISECONDS,
                         new LinkedBlockingQueue<Runnable>()
                 );
-        File videoFile=new File(Environment.getExternalStorageDirectory().getAbsolutePath(),"test.mp4");
+        myQueue = new PriorityQueue<FrameHolder>(100, comparator);
+        videoFile=new File(Environment.getExternalStorageDirectory().getAbsolutePath(),"test.mp4");
         initRetriever(videoFile.getAbsolutePath(), 12.08, 20.08);
 
-        myTextView = (TextView)findViewById(R.id.textView);
+
         mRenderer = new Renderer();
         mTextureView = (TextureView) findViewById(R.id.textureView);
         mTextureView.setSurfaceTextureListener(mRenderer);
-        Log.i(TAG, "No cores : "+ cores);
+
+       // Log.i(TAG, "No cores : "+ cores);
 
     }
+
     public void initRetriever(String path, double d, double f){
         progressDialog = ProgressDialog.show(MainActivity.this, "",
                 "Loading ...", true);
@@ -86,6 +83,7 @@ public class MainActivity extends AppCompatActivity {
         retriever = new MediaMetadataRetriever();
         retriever.setDataSource(path);
         setVideoProbe(d, f);
+//        mRenderer.start();
         setRetrieveThreads();
     }
     public void setVideoProbe(double d, double f){
@@ -94,20 +92,19 @@ public class MainActivity extends AppCompatActivity {
         step = MICRO_SECODND/frameRate;
     }
     public void setRetrieveThreads(){
-//
-        for(long start = 0 ; start < durationInSeconds * MICRO_SECODND ; start += step * (FRAMES_NUMBER_PER_THREAD + 1)){
 
+        for(long start = 0 ; start < durationInSeconds * MICRO_SECODND ; start += step * (FRAMES_NUMBER_PER_THREAD + 1)){
             FrameRetrieverThread th = new FrameRetrieverThread(start, threadID);
             retrieverThreads.add(th);
         }
-//        FrameRetrieverThread th = new FrameRetrieverThread(0, threadID);
-//        retrieverThreads.add(th);
-        runThreads();
         finalizeThread = new FinalizeThread();
         finalizeThread.start();
+        runThreads();
+//        gcThread = new GCThread();
+//        gcThread.start();
     }
     public void runThreads(){
-        Log.i(TAG, "Number of threads : " + retrieverThreads.size());
+       // Log.i(TAG, "Number of threads : " + retrieverThreads.size());
         for(FrameRetrieverThread f : retrieverThreads){
          //  f.start();
             myPool.execute(f);
@@ -136,49 +133,43 @@ public class MainActivity extends AppCompatActivity {
             this.ID = ID;
             this.end = start + (step * FRAMES_NUMBER_PER_THREAD);
             threadID ++;
-            Log.i(TAG, " start :" + start + " end " + end);
+        //    Log.i(TAG, " start :" + start + " end " + end);
 
         }
         public void run(){
+            int index = 0;
             for(long seconds = start ; seconds < end && seconds < (durationInSeconds * MICRO_SECODND)  ; seconds += step){
-                frames.add(retriever.getFrameAtTime(seconds, MediaMetadataRetriever.OPTION_CLOSEST));
-//                Bitmap mp = frameGabber.getFrameAtTime(seconds);
-//                if(mp == null){
-//                    break;
-//                }else{
-//                    frames.add(frameGabber.getFrameAtTime(seconds));
-//                }
+                Bitmap b = retriever.getFrameAtTime(seconds, MediaMetadataRetriever.OPTION_CLOSEST);
+                if(b!=null) {
+                    myQueue.add(new FrameHolder(Bitmap.createScaledBitmap(b, 128,128, true), ID, index));
+                    index ++;
+                }
 
             }
             finished = true;
         }
     }
     public class FinalizeThread extends Thread{
+        public boolean started = false;
         public FinalizeThread(){
             super("Finalize Thread");
-           // Log.i(TAG, "Threads count : " +  retrieverThreads.size());
         }
         public void run(){
-           // Log.i(TAG, "Before Stall");
             while(!checkRetrieverThreads());
-          //  Log.i(TAG, "After Stall");
-            for(FrameRetrieverThread f : retrieverThreads){
-                Log.i(TAG, "TH Index : "+ f.ID);
-            }
+           // Log.i(TAG, "After Stall");
             myTextView.post(new Runnable() {
                 @Override
                 public void run() {
-                    if (checkRetrieverThreads()) {
-                        myTextView.setText("ARRAY LENGTH IS : " + frames.size());
-                        progressDialog.dismiss();
-
-                    }
+                    myTextView.setText("ARRAY LENGTH IS : " + myQueue.size());
+                    progressDialog.dismiss();
+              //      Log.i(TAG, "DISMISS");
                 }
             });
             myTextView.post(new Runnable() {
                 @Override
                 public void run() {
                     mRenderer.start();
+              //      Log.i(TAG, "START");
                 }
             });
         }
@@ -188,7 +179,22 @@ public class MainActivity extends AppCompatActivity {
                     return false;
                 }
             }
+            started = true;
             return true;
+        }
+    }
+
+    public class GCThread extends Thread {
+        public GCThread(){
+            super("Garbage collector thred");
+        }
+        public void run(){
+            while(!finalizeThread.started){
+                if(myQueue.size() % 3 == 0){
+                    System.gc();
+                }
+            }
+
         }
     }
 
@@ -250,12 +256,10 @@ public class MainActivity extends AppCompatActivity {
             paint.setStyle(Paint.Style.FILL);
 
             boolean partial = false;
-            while (true) {
+            while (true && !myQueue.isEmpty()) {
                 Rect dirty = null;
                 if (partial) {
-                    // Set a dirty rect to confirm that the feature is working.  It's
-                    // possible for lockCanvas() to expand the dirty rect if for some
-                    // reason the system doesn't have access to the previous buffer.
+
                     dirty = new Rect(0, mHeight * 3 / 8, mWidth, mHeight * 5 / 8);
                 }
                 Canvas canvas = surface.lockCanvas(dirty);
@@ -264,15 +268,12 @@ public class MainActivity extends AppCompatActivity {
                     break;
                 }
                 try {
-                    // just curious
-                    if (canvas.getWidth() != mWidth || canvas.getHeight() != mHeight) {
-
-                    }
                     Paint p=new Paint();
-                    Bitmap b = frames.get(100);
-
+                    FrameHolder h = myQueue.remove();
+                    Bitmap b = h.getBitmap();
+                    Bitmap c = Bitmap.createScaledBitmap(b, mWidth, mHeight, false);
                     p.setColor(Color.RED);
-                    canvas.drawBitmap(b, 0, 0, p);
+                    canvas.drawBitmap(c, 0, 0, p);
                 } finally {
                     try {
                         surface.unlockCanvasAndPost(canvas);
@@ -292,6 +293,13 @@ public class MainActivity extends AppCompatActivity {
                 if (xpos <= -BLOCK_WIDTH / 2 || xpos >= mWidth - BLOCK_WIDTH / 2) {
 
                     xdir = -xdir;
+                }
+                try {
+                  //  Log.i(TAG, "Sleeping time : "+ step);
+                    sleep(49L);
+
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
                 }
             }
 
