@@ -19,10 +19,15 @@ import android.view.TextureView;
 import android.widget.TextView;
 import com.example.ebrahim_elgaml.retrieveframes.utils.FrameHolder;
 import com.example.ebrahim_elgaml.retrieveframes.utils.IntegerComp;
+
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.PriorityQueue;
+import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -51,6 +56,7 @@ public class MainActivity extends AppCompatActivity {
     private GCThread gcThread;
 
     private File videoFile;
+    private ArrayList<Bitmap> toSave = new ArrayList<>();
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -271,6 +277,7 @@ public class MainActivity extends AppCompatActivity {
                     Paint p=new Paint();
                     FrameHolder h = myQueue.remove();
                     Bitmap b = h.getBitmap();
+                    toSave.add(b);
                     Bitmap c = Bitmap.createScaledBitmap(b, mWidth, mHeight, false);
                     p.setColor(Color.RED);
                     canvas.drawBitmap(c, 0, 0, p);
@@ -303,7 +310,13 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
 
+
             surface.release();
+            try {
+                saveFrames(toSave);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
 
         public void halt() {
@@ -343,6 +356,40 @@ public class MainActivity extends AppCompatActivity {
         public void onSurfaceTextureUpdated(SurfaceTexture st) {
 
         }
+    }
+    public void saveFrames(ArrayList<Bitmap> saveBitmapList) throws IOException{
+        Random r = new Random();
+        int folder_id = r.nextInt(1000) + 1;
+
+        String folder = Environment.getExternalStorageDirectory()+"";
+        File saveFolder=new File(folder);
+//        if(!saveFolder.exists()){
+//            saveFolder.mkdirs();
+//        }
+
+        int i=1;
+        for (Bitmap b : saveBitmapList){
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            b.compress(Bitmap.CompressFormat.JPEG, 40, bytes);
+
+            File f = new File(saveFolder,("frame"+i+".jpg"));
+
+            try {
+                f.createNewFile();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+            FileOutputStream fo = new FileOutputStream(f);
+            fo.write(bytes.toByteArray());
+
+            fo.flush();
+            fo.close();
+
+            i++;
+        }
+
+
     }
 
 }
