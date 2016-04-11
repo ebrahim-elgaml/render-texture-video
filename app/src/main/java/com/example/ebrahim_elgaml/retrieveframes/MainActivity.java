@@ -3,35 +3,46 @@ package com.example.ebrahim_elgaml.retrieveframes;
 import android.annotation.TargetApi;
 import android.app.ProgressDialog;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ImageFormat;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
+import android.graphics.YuvImage;
+import android.media.MediaCodec;
+import android.media.MediaExtractor;
+
+import android.media.MediaFormat;
 import android.media.MediaMetadataRetriever;
 import android.os.Build;
 import android.os.Environment;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Surface;
 import android.view.TextureView;
 import android.widget.TextView;
 import com.example.ebrahim_elgaml.retrieveframes.utils.FrameHolder;
 import com.example.ebrahim_elgaml.retrieveframes.utils.IntegerComp;
-
+import java.io.BufferedOutputStream;
+import java.io.BufferedWriter;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
+import java.io.FileWriter;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.PriorityQueue;
-import java.util.Random;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
 @TargetApi(Build.VERSION_CODES.JELLY_BEAN)
 public class MainActivity extends AppCompatActivity {
@@ -46,77 +57,90 @@ public class MainActivity extends AppCompatActivity {
     private TextureView mTextureView;
     private Renderer mRenderer;
     private final int FRAMES_NUMBER_PER_THREAD = 80;
-    private ArrayList<FrameRetrieverThread> retrieverThreads = new ArrayList<>();
-    private FinalizeThread finalizeThread ;
     private int threadID = 0 ;
     private int cores = Runtime.getRuntime().availableProcessors() * 2;
     private ExecutorService myPool ;
     private Comparator<FrameHolder> comparator = new IntegerComp();
     private PriorityQueue<FrameHolder> myQueue ;
-    private GCThread gcThread;
-
+    private MediaExtractor mx = new MediaExtractor();
+    private ArrayList<ByteBuffer> byteBuffers = new ArrayList<>();
     private File videoFile;
-    private ArrayList<Bitmap> toSave = new ArrayList<>();
+    private BitmapFactory.Options options;
+    private PlayerThread mPThread;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        options = new BitmapFactory.Options();
         myTextView = (TextView)findViewById(R.id.textView);
-        myPool = new ThreadPoolExecutor(
-                        cores/2,
-                        cores,
-                        1,
-                        TimeUnit.MILLISECONDS,
-                        new LinkedBlockingQueue<Runnable>()
-                );
         myQueue = new PriorityQueue<FrameHolder>(100, comparator);
         videoFile=new File(Environment.getExternalStorageDirectory().getAbsolutePath(),"test.mp4");
-        initRetriever(videoFile.getAbsolutePath(), 12.08, 20.08);
-
-
         mRenderer = new Renderer();
         mTextureView = (TextureView) findViewById(R.id.textureView);
         mTextureView.setSurfaceTextureListener(mRenderer);
+        mTextureView.setAlpha(0.5f);
+        initRetriever(videoFile.getAbsolutePath(), 12.08, 20.08);
+        Log.i(TAG, "No cores : "+ cores);
 
-       // Log.i(TAG, "No cores : "+ cores);
+    }
+    @TargetApi(Build.VERSION_CODES.JELLY_BEAN)
+    public void getVideoData(String path){
+        mx = new MediaExtractor();
+        try {
+            mx.setDataSource(path);
+            mx.selectTrack(0);
+            ByteBuffer bf = ByteBuffer.allocate( (39500));
+            int sampleSize;
+            ArrayList<Integer> a = new ArrayList<>();
+            MediaFormat format = mx.getTrackFormat(0);
+            Log.i(TAG, "Width  : " + format.getInteger(MediaFormat.KEY_WIDTH) + "Height : " + format.getInteger(MediaFormat.KEY_HEIGHT));
+            while((sampleSize = mx.readSampleData(bf, 0)) >= 0){
 
+                a.add(sampleSize);
+                Log.i(TAG, "SAMPLE SIZE : " + sampleSize + " and " + (sampleSize % 4 == 0?"":"Not ") +"divisble by 4" + " - Sample time " + mx.getSampleTime());
+
+                byteBuffers.add(bf);
+                mx.advance();
+                bf = ByteBuffer.allocate( (39500));
+                //bf = ByteBuffer.allocate((int) (640*360*2));
+            }
+            int z = -1;
+            int index = -1;
+            for(int i = 0 ; i < a.size() ; i++){
+                Integer s = a.get(i);
+                if(s.intValue() > z){
+                    z = s.intValue();
+                    index = i;
+                }
+            }
+            Log.i(TAG, "MAx : " + z + " With index : " + index);
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        mx.release();
+        mx = null;
+        Log.i(TAG, "Buffers size : " + byteBuffers.size());
     }
 
     public void initRetriever(String path, double d, double f){
-        progressDialog = ProgressDialog.show(MainActivity.this, "",
-                "Loading ...", true);
-        progressDialog.setCancelable(false);
         retriever = new MediaMetadataRetriever();
         retriever.setDataSource(path);
         setVideoProbe(d, f);
-//        mRenderer.start();
-        setRetrieveThreads();
+        getVideoData(videoFile.getAbsolutePath());
+//        mPThread = new PlayerThread();
+//        mPThread.start();
+        myTextView.setText("ARRAY LENGTH IS : " + byteBuffers.size());
+        mRenderer.start();
+
+
     }
     public void setVideoProbe(double d, double f){
         durationInSeconds = d;
         frameRate = f;
         step = MICRO_SECODND/frameRate;
     }
-    public void setRetrieveThreads(){
 
-        for(long start = 0 ; start < durationInSeconds * MICRO_SECODND ; start += step * (FRAMES_NUMBER_PER_THREAD + 1)){
-            FrameRetrieverThread th = new FrameRetrieverThread(start, threadID);
-            retrieverThreads.add(th);
-        }
-        finalizeThread = new FinalizeThread();
-        finalizeThread.start();
-        runThreads();
-//        gcThread = new GCThread();
-//        gcThread.start();
-    }
-    public void runThreads(){
-       // Log.i(TAG, "Number of threads : " + retrieverThreads.size());
-        for(FrameRetrieverThread f : retrieverThreads){
-         //  f.start();
-            myPool.execute(f);
-        }
-        myPool.shutdown();
-    }
     @Override
     protected void onResume() {
         super.onResume();
@@ -127,82 +151,157 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
         mRenderer.halt();
     }
-    public class FrameRetrieverThread extends Thread{
-        private long start; // in micro seconds
-        private double end; // in micro seconds
-        private int ID;
-        private boolean finished = false;
+    private class PlayerThread extends Thread {
+        private MediaExtractor extractor;
+        private MediaCodec decoder;
+        private ByteBuffer[] inputBuffers;
+        private ByteBuffer[] outputBuffers;
+        public boolean finished = false;
 
-        public FrameRetrieverThread( long start, int ID) {
-            super("My Thread");
-            this.start = start;
-            this.ID = ID;
-            this.end = start + (step * FRAMES_NUMBER_PER_THREAD);
-            threadID ++;
-        //    Log.i(TAG, " start :" + start + " end " + end);
-
+        public PlayerThread() {
+            super("PlayThread");
         }
-        public void run(){
-            int index = 0;
-            for(long seconds = start ; seconds < end && seconds < (durationInSeconds * MICRO_SECODND)  ; seconds += step){
-                Bitmap b = retriever.getFrameAtTime(seconds, MediaMetadataRetriever.OPTION_CLOSEST);
-                if(b!=null) {
-                    myQueue.add(new FrameHolder(Bitmap.createScaledBitmap(b, 128,128, true), ID, index));
-                    index ++;
+        @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR2)
+        @Override
+        public void run() {
+            Log.i(TAG, "START PLAYER");
+            extractor = new MediaExtractor();
+            try {
+                extractor.setDataSource(videoFile.getAbsolutePath());
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            try {
+                MediaFormat format = extractor.getTrackFormat(0);
+                String mime = format.getString(MediaFormat.KEY_MIME);
+                extractor.selectTrack(0);
+                decoder = MediaCodec.createDecoderByType(mime);
+                decoder.configure(format, null, null, 0);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            if (decoder == null) {
+                Log.e("DecodeActivity", "Can't find video info!");
+                return;
+            }
+
+            decoder.start();
+
+            inputBuffers = decoder.getInputBuffers();
+            outputBuffers = decoder.getOutputBuffers();
+            MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+            boolean isEOS = false;
+            long startMs = System.currentTimeMillis();
+            int index = 0  ;
+            while (!isEOS) {
+                Log.i(TAG, "START PLAYER IN LOOP " + index);
+                if (!isEOS) {
+                    int inIndex = decoder.dequeueInputBuffer(10000*5);
+                    if (inIndex >= 0) {
+                        ByteBuffer buffer = inputBuffers[inIndex];
+                        int sampleSize = extractor.readSampleData(buffer, 0);
+                        if (sampleSize < 0) {
+                            Log.d("DecodeActivity", "InputBuffer BUFFER_FLAG_END_OF_STREAM");
+                            decoder.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                            isEOS = true;
+                        } else {
+                            decoder.queueInputBuffer(inIndex, 0, sampleSize, extractor.getSampleTime(), 0);
+                            extractor.advance();
+                            index ++;
+                        }
+                    }
+                }
+                int outIndex = decoder.dequeueOutputBuffer(info, 10000);
+                switch (outIndex) {
+                    case MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED:
+                        Log.d("DecodeActivity", "INFO_OUTPUT_BUFFERS_CHANGED");
+                        outputBuffers = decoder.getOutputBuffers();
+                        break;
+                    case MediaCodec.INFO_OUTPUT_FORMAT_CHANGED:
+                        Log.d("DecodeActivity", "New format " + decoder.getOutputFormat());
+                        break;
+                    case MediaCodec.INFO_TRY_AGAIN_LATER:
+                        Log.d("DecodeActivity", "dequeueOutputBuffer timed out!");
+                        break;
+                    default:
+                        ByteBuffer buffer = outputBuffers[outIndex];
+                        Log.v("DecodeActivity", "We can't use this buffer but render it due to the API limit, " + buffer);
+
+                        // We use a very simple clock to keep the video FPS, or the video
+                        // playback will be too fast
+                        while (info.presentationTimeUs / 1000 > System.currentTimeMillis() - startMs) {
+                            try {
+                                sleep(10);
+                            } catch (InterruptedException e) {
+                                e.printStackTrace();
+                                break;
+                            }
+                        }
+
+                        decoder.releaseOutputBuffer(outIndex, false);
+                        break;
                 }
 
+                // All decoded frames have been rendered, we can stop playing now
+                if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                    Log.d("DecodeActivity", "OutputBuffer BUFFER_FLAG_END_OF_STREAM");
+                    break;
+                }
+
+
             }
+
+            decoder.stop();
+            decoder.release();
+            extractor.release();
+            printTrace();
             finished = true;
         }
-    }
-    public class FinalizeThread extends Thread{
-        public boolean started = false;
-        public FinalizeThread(){
-            super("Finalize Thread");
-        }
-        public void run(){
-            while(!checkRetrieverThreads());
-           // Log.i(TAG, "After Stall");
-            myTextView.post(new Runnable() {
-                @Override
-                public void run() {
-                    myTextView.setText("ARRAY LENGTH IS : " + myQueue.size());
-                    progressDialog.dismiss();
-              //      Log.i(TAG, "DISMISS");
-                }
-            });
-            myTextView.post(new Runnable() {
-                @Override
-                public void run() {
-                    mRenderer.start();
-              //      Log.i(TAG, "START");
-                }
-            });
-        }
-        public boolean checkRetrieverThreads(){
-            for(FrameRetrieverThread f : retrieverThreads){
-                if(!f.finished){
-                    return false;
-                }
+        public void printTrace(){
+            for(int i = 0 ; i< outputBuffers.length; i++){
+                Log.i(TAG, "SIZE : " + outputBuffers[i].remaining());
             }
-            started = true;
-            return true;
+            Log.i(TAG, "ARRAY LENGTH " + outputBuffers.length);
+            outputBuffers[0].rewind();
+            byte[] myByte = new byte[outputBuffers[0].remaining()];
+            int b = 0;
+           // outputBuffers[0].get(myByte);
+            //ByteBuffer bb = outputBuffers[0].duplicate();
+            outputBuffers[0].get(myByte, 10, 50);
+
+//            while(outputBuffers[0].hasRemaining()){
+//                myByte[b] = outputBuffers[0].get();
+//                b++;
+//                outputBuffers[0].get(myByte, 10, 50);
+//                outputBuffers[0].get();
+//                outputBuffers[0].get();
+//                outputBuffers[0].get();
+//                outputBuffers[0].get();
+//                outputBuffers[0].get();
+//                outputBuffers[0].get();
+//                outputBuffers[0].get();
+//                outputBuffers[0].get();
+//                outputBuffers[0].get();
+//                outputBuffers[0].get();
+//
+//            }
+            String s =Arrays.toString(myByte);
+            Log.i(TAG, "TEST STRING : " + s);
+            appendLog(s);
+            int start = 0 ;
+            int end = 200;
+            int lines = 1;
+            while(end < s.length()){
+                Log.i(TAG, "LINE : " + lines + " >> " + s.substring(start, end));
+                start = end;
+                end += 200;
+                lines++;
+            }
         }
+
+
     }
 
-    public class GCThread extends Thread {
-        public GCThread(){
-            super("Garbage collector thred");
-        }
-        public void run(){
-            while(!finalizeThread.started){
-                if(myQueue.size() % 3 == 0){
-                    System.gc();
-                }
-            }
-
-        }
-    }
 
     private  class Renderer extends Thread implements TextureView.SurfaceTextureListener {
         private Object mLock = new Object();        // guards mSurfaceTexture, mDone
@@ -218,6 +317,7 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void run() {
+            //while(!mPThread.finished);
             while (true) {
                 SurfaceTexture surfaceTexture = null;
 
@@ -239,6 +339,7 @@ public class MainActivity extends AppCompatActivity {
             }
 
         }
+        @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
         private void doAnimation() {
             final int BLOCK_WIDTH = 80;
             final int BLOCK_SPEED = 2;
@@ -262,7 +363,8 @@ public class MainActivity extends AppCompatActivity {
             paint.setStyle(Paint.Style.FILL);
 
             boolean partial = false;
-            while (true && !myQueue.isEmpty()) {
+            int i = 0 ;
+            while (true && i < 1) {
                 Rect dirty = null;
                 if (partial) {
 
@@ -275,12 +377,57 @@ public class MainActivity extends AppCompatActivity {
                 }
                 try {
                     Paint p=new Paint();
-                    FrameHolder h = myQueue.remove();
-                    Bitmap b = h.getBitmap();
-                    toSave.add(b);
-                    Bitmap c = Bitmap.createScaledBitmap(b, mWidth, mHeight, false);
-                    p.setColor(Color.RED);
+                    options.inSampleSize = mHeight>mWidth?mHeight:mWidth;
+                    byteBuffers.get(0).rewind();
+                    String s =Arrays.toString(byteBuffers.get(0).array());
+                    appendLog(s);
+                    int start = 0 ;
+                    int end = 200;
+                    int lines = 1;
+                    while(end < s.length()){
+                        Log.i(TAG, "LINE : " + lines + " >> " + s.substring(start, end));
+                        start = end;
+                        end += 200;
+                        lines++;
+                    }
+                    Log.i(TAG, s.substring(start));
+                    int[] px = new int[byteBuffers.get(55).remaining()];
+                    int j = 0 ;
+                    byteBuffers.get(55).rewind();
+
+                    while(byteBuffers.get(55).hasRemaining()){
+                        px[j] = byteBuffers.get(55).get();
+                        j++;
+                    }
+                    byteBuffers.get(0).rewind();
+                    Log.i(TAG, "WIDTH : "+mWidth +" H : "+mHeight);
+
+                    // TAG MYRETRIEVERDEBUG
+                    //Bitmap decoded ;
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    byteBuffers.get(0).rewind();
+                    YuvImage y = new YuvImage(byteBuffers.get(0).array(), ImageFormat.NV21, 640, 360, null);
+                    y.compressToJpeg(new Rect(0, 0, 640, 360), 50, out);
+                    byte[] imageBytes = out.toByteArray();
+                    byte[] rgb = new byte[imageBytes.length * 2];
+                    //Bitmap image = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
+                   // toRGB565(imageBytes, 640, 368, rgb);
+                    Bitmap decoded = BitmapFactory.decodeStream(new ByteArrayInputStream(byteBuffers.get(50).array()), null, options );
+                    //decoded.copyPixelsFromBuffer(byteBuffers.get(0));
+//                    decoded.setPixels(px, 0, mWidth, 0, 0, mWidth, mHeight );
+//                    decoded.compress(Bitmap.CompressFormat.PNG, 90, bos);
+                    decoded = Bitmap.createBitmap(createDummyColorsRGBA(640,360), 640,360, Bitmap.Config.ARGB_8888);
+                    decoded = Bitmap.createBitmap(createDummyColorsRGBA(640,360), 640,360, Bitmap.Config.ARGB_8888);
+                    //decoded.recycle();
+                    //Log.i(TAG, "DECODED IMAGE LENGTH " + byteBuffers.get(1).array().length);
+                    //decoded = Bitmap.createBitmap(640,360, Bitmap.Config.ARGB_8888);
+                    //decoded.setPixels(ByteBuffer.wrap(rgb).asIntBuffer().array(), 0, mWidth, 0, 0, mWidth, mHeight );
+                    Log.i(TAG, "DECODED IMAGE DATA" + ((decoded == null) ? "NIL" : "VALUE"));
+                    Bitmap c = Bitmap.createScaledBitmap(decoded, mWidth, mHeight, false);
+                    //p.setColor(Color.RED);
+                    i++;
                     canvas.drawBitmap(c, 0, 0, p);
+                    halt();
                 } finally {
                     try {
                         surface.unlockCanvasAndPost(canvas);
@@ -301,22 +448,9 @@ public class MainActivity extends AppCompatActivity {
 
                     xdir = -xdir;
                 }
-                try {
-                  //  Log.i(TAG, "Sleeping time : "+ step);
-                    sleep(49L);
-
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
             }
-
 
             surface.release();
-            try {
-                saveFrames(toSave);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
         }
 
         public void halt() {
@@ -357,39 +491,107 @@ public class MainActivity extends AppCompatActivity {
 
         }
     }
-    public void saveFrames(ArrayList<Bitmap> saveBitmapList) throws IOException{
-        Random r = new Random();
-        int folder_id = r.nextInt(1000) + 1;
+    private void toRGB565(byte[] yuvs, int width, int height, byte[] rgbs) {
+        //the end of the luminance data
+        final int lumEnd = width * height;
+        //points to the next luminance value pair
+        int lumPtr = 0;
+        //points to the next chromiance value pair
+        int chrPtr = lumEnd;
+        //points to the next byte output pair of RGB565 value
+        int outPtr = 0;
+        //the end of the current luminance scanline
+        int lineEnd = width;
 
-        String folder = Environment.getExternalStorageDirectory()+"";
-        File saveFolder=new File(folder);
-//        if(!saveFolder.exists()){
-//            saveFolder.mkdirs();
-//        }
+        while (true) {
 
-        int i=1;
-        for (Bitmap b : saveBitmapList){
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-            b.compress(Bitmap.CompressFormat.JPEG, 40, bytes);
-
-            File f = new File(saveFolder,("frame"+i+".jpg"));
-
-            try {
-                f.createNewFile();
-            } catch (IOException e) {
-                e.printStackTrace();
+            //skip back to the start of the chromiance values when necessary
+            if (lumPtr == lineEnd) {
+                if (lumPtr == lumEnd) break; //we've reached the end
+                //division here is a bit expensive, but's only done once per scanline
+                chrPtr = lumEnd + ((lumPtr  >> 1) / width) * width;
+                lineEnd += width;
             }
 
-            FileOutputStream fo = new FileOutputStream(f);
-            fo.write(bytes.toByteArray());
+            //read the luminance and chromiance values
+            final int Y1 = yuvs[lumPtr++] & 0xff;
+            final int Y2 = yuvs[lumPtr++] & 0xff;
+            final int Cr = (yuvs[chrPtr++] & 0xff) - 128;
+            final int Cb = (yuvs[chrPtr++] & 0xff) - 128;
+            int R, G, B;
 
-            fo.flush();
-            fo.close();
+            //generate first RGB components
+            B = Y1 + ((454 * Cb) >> 8);
+            if(B < 0) B = 0; else if(B > 255) B = 255;
+            G = Y1 - ((88 * Cb + 183 * Cr) >> 8);
+            if(G < 0) G = 0; else if(G > 255) G = 255;
+            R = Y1 + ((359 * Cr) >> 8);
+            if(R < 0) R = 0; else if(R > 255) R = 255;
+            //NOTE: this assume little-endian encoding
+            rgbs[outPtr++]  = (byte) (((G & 0x3c) << 3) | (B >> 3));
+            rgbs[outPtr++]  = (byte) ((R & 0xf8) | (G >> 5));
 
-            i++;
+            //generate second RGB components
+            B = Y2 + ((454 * Cb) >> 8);
+            if(B < 0) B = 0; else if(B > 255) B = 255;
+            G = Y2 - ((88 * Cb + 183 * Cr) >> 8);
+            if(G < 0) G = 0; else if(G > 255) G = 255;
+            R = Y2 + ((359 * Cr) >> 8);
+            if(R < 0) R = 0; else if(R > 255) R = 255;
+            //NOTE: this assume little-endian encoding
+            rgbs[outPtr++]  = (byte) (((G & 0x3c) << 3) | (B >> 3));
+            rgbs[outPtr++]  = (byte) ((R & 0xf8) | (G >> 5));
         }
+    }
+    public static int[] createDummyColorsRGBA (int bitmapWidth, int bitmaoHeight){
+        int[] colors = new int[bitmapWidth*bitmaoHeight];
+        int a = 50;
+        int r = 50;
+        int g = 50;
+        int b = 50;
+        for(int i = 0 ; i < colors.length ; i++){
+            Color c = new Color();
+//            if(i % bitmapWidth == 0){
+//                r = (r+50)%255;
+//                g = (r+50)%255;
+//                b = (r+50)%255;
+//
+//
+//            }
+            colors[i] = c.argb(a, r, g, b);
+        }
+        return colors;
 
 
+    }
+    public void appendLog(String text)
+    {
+        File logFile = new File("sdcard/log.txt");
+        if (!logFile.exists())
+        {
+            try
+            {
+                logFile.createNewFile();
+            }
+            catch (IOException e)
+            {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
+        }
+        try
+        {
+            //BufferedWriter for performance, true to set append to file flag
+            BufferedWriter buf = new BufferedWriter(new FileWriter(logFile, true));
+            buf.append(text);
+            buf.newLine();
+            buf.close();
+        }
+        catch (IOException e)
+        {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
     }
 
 }
