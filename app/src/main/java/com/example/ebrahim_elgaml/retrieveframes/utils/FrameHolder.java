@@ -84,15 +84,21 @@ public class FrameHolder {
             for(int j = 0 ; j < a.getHeight() ; j++){
                 int pixelA = a.getPixel(i, j);
                 int pixelB = b.getPixel(i, j);
-                int newR = (int)(Color.red(pixelA) - Color.red(pixelB)) &0xFF;
-                int newG = (int)(Color.green(pixelA) - Color.green(pixelB))&0xFF;
-                int newB = (int)(Color.blue(pixelA) - Color.blue(pixelB))&0xFF;
-                //int newAlpha = (int)((((pixelA>>24)& 0xFF)*0.8)+(((pixelB>>24)& 0xFF)*0.2));
-                //Log.i("MYRETRIEVERDEBUG", "Color A : RED " + Color.red(pixelA) +" GREEN : " + Color.green(pixelA)  + " Blue : " + Color.blue(pixelA) );
-                //Log.i("MYRETRIEVERDEBUG", "Color B : RED " + Color.red(pixelB) +" GREEN : " + Color.green(pixelB)  + " Blue : " + Color.blue(pixelB) );
-                //if(pixelB == Color.BLACK) {
-                    int color = Color.argb(255, newR, newG, newB);
-                    a.setPixel(i, j, color);
+                if((pixelA&0xFFFFFF) > (pixelB&0xFFFFFF)){
+
+                }else{
+
+                    a.setPixel(i, j, pixelB);
+                }
+//                int newR = (int)(Color.red(pixelA) * 0.95 + Color.red(pixelB) * 0.05) &0xFF;
+//                int newG = (int)(Color.green(pixelA) * 0.95 + Color.green(pixelB) * 0.05)&0xFF;
+//                int newB = (int)(Color.blue(pixelA) * 0.95 + Color.blue(pixelB) * 0.05)&0xFF;
+//                //int newAlpha = (int)((((pixelA>>24)& 0xFF)*0.8)+(((pixelB>>24)& 0xFF)*0.2));
+//                //Log.i("MYRETRIEVERDEBUG", "Color A : RED " + Color.red(pixelA) +" GREEN : " + Color.green(pixelA)  + " Blue : " + Color.blue(pixelA) );
+//                //Log.i("MYRETRIEVERDEBUG", "Color B : RED " + Color.red(pixelB) +" GREEN : " + Color.green(pixelB)  + " Blue : " + Color.blue(pixelB) );
+//                //if(pixelB == Color.BLACK) {
+//                    int color = Color.argb(255, newR, newG, newB);
+//                    a.setPixel(i, j, color);
 //                }else{
 //                    int color = Color.argb(Color.alpha(pixelA), Color.red(pixelB),  Color.green(pixelB), Color.blue(pixelB));
 //                    a.setPixel(i, j, color);

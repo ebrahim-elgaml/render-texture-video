@@ -16,10 +16,14 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.Surface;
 import android.view.TextureView;
+import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
 import android.widget.TextView;
 import com.example.ebrahim_elgaml.retrieveframes.utils.FrameHolder;
 import com.example.ebrahim_elgaml.retrieveframes.utils.FrameModifier;
 import com.example.ebrahim_elgaml.retrieveframes.utils.IntegerComp;
+import com.example.ebrahim_elgaml.retrieveframes.utils.MyView;
 
 import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
@@ -47,8 +51,8 @@ public class MainActivity extends AppCompatActivity {
     private double step;
     private TextView myTextView;
     private ProgressDialog progressDialog;
-    private TextureView mTextureView;
-    private Renderer mRenderer;
+//    private TextureView mTextureView;
+//    private Renderer mRenderer;
     private final int FRAMES_NUMBER_PER_THREAD = 80;
     private ArrayList<FrameRetrieverThread> retrieverThreads = new ArrayList<>();
     private FinalizeThread finalizeThread ;
@@ -57,18 +61,24 @@ public class MainActivity extends AppCompatActivity {
     private ExecutorService myPool ;
     private final Comparator<FrameHolder> comparator = new IntegerComp();
     private PriorityQueue<FrameHolder> myQueue ;
-    private GCThread gcThread;
-    private final int frameWidth = 320;
-    private final int frameHeight = 180;
     private File videoFile;
     private ArrayList<Bitmap> toSave = new ArrayList<>();
     private FrameModifier frameModifier ;
     private final int diffKeyFrames = 6;
+    private MyView myView;
+    public static ArrayList<FrameHolder> frameHolders = new ArrayList<>();
+    private Button myButton;
+    private EditText editText;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        myView = (MyView)findViewById(R.id.myView);
         myTextView = (TextView)findViewById(R.id.textView);
+        myButton = (Button)findViewById(R.id.button);
+        editText = (EditText)findViewById(R.id.editText);
+        editText.setText("15");
+        myButton.setActivated(false);
         myPool = new ThreadPoolExecutor(
                         cores/2,
                         cores,
@@ -78,12 +88,19 @@ public class MainActivity extends AppCompatActivity {
                 );
         myQueue = new PriorityQueue<FrameHolder>(100, comparator);
         videoFile=new File(Environment.getExternalStorageDirectory().getAbsolutePath()+"/testing/","test.mp4");
-        mRenderer = new Renderer();
-        mTextureView = (TextureView) findViewById(R.id.textureView);
         frameModifier.setDiffKeyFrames(diffKeyFrames);
-        mTextureView.setSurfaceTextureListener(mRenderer);
-        mTextureView.setBackgroundColor(Color.WHITE);
         initRetriever(videoFile.getAbsolutePath(), 12, 15);
+        myButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                frameModifier.recreate();
+                myView.setFrameModifier(frameModifier);
+                myView.setCanStart(true);
+                int l = 1000/Integer.parseInt(editText.getText().toString());
+                myView.setFrameRate(l);
+                myView.setPreviousTime(System.currentTimeMillis());
+            }
+        });
 
     }
 
@@ -94,7 +111,6 @@ public class MainActivity extends AppCompatActivity {
         retriever = new MediaMetadataRetriever();
         retriever.setDataSource(path);
         setVideoProbe(d, f);
-//        mRenderer.start();
         setRetrieveThreads();
     }
     public void setVideoProbe(double d, double f){
@@ -117,7 +133,6 @@ public class MainActivity extends AppCompatActivity {
     public void runThreads(){
        // Log.i(TAG, "Number of threads : " + retrieverThreads.size());
         for(FrameRetrieverThread f : retrieverThreads){
-
             myPool.execute(f);
         }
         myPool.shutdown();
@@ -130,7 +145,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        mRenderer.halt();
     }
     public class FrameRetrieverThread extends Thread{
         private long start; // in micro seconds
@@ -174,13 +188,7 @@ public class MainActivity extends AppCompatActivity {
                     myTextView.setText("ARRAY LENGTH IS : " + frameModifier.size());
                     progressDialog.dismiss();
               //      Log.i(TAG, "DISMISS");
-                }
-            });
-            myTextView.post(new Runnable() {
-                @Override
-                public void run() {
-                    mRenderer.start();
-              //      Log.i(TAG, "START");
+                    myButton.setActivated(true);
                 }
             });
         }
@@ -191,159 +199,12 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             frameModifier = new FrameModifier(myQueue);
+            myView.setFrameModifier(frameModifier);
+            myView.setCanStart(true);
+            myView.setFrameRate(66);
+            myView.setPreviousTime(System.currentTimeMillis());
             started = true;
             return true;
-        }
-    }
-
-    public class GCThread extends Thread {
-        public GCThread(){
-            super("Garbage collector thred");
-        }
-        public void run(){
-            while(!finalizeThread.started){
-                if(myQueue.size() % 3 == 0){
-                    System.gc();
-                }
-            }
-
-        }
-    }
-
-    private  class Renderer extends Thread implements TextureView.SurfaceTextureListener {
-        private Object mLock = new Object();        // guards mSurfaceTexture, mDone
-        private SurfaceTexture mSurfaceTexture;
-        private boolean mDone;
-
-        private int mWidth;     // from SurfaceTexture
-        private int mHeight;
-
-        public Renderer() {
-            super("TextureViewCanvas Renderer");
-        }
-
-        @Override
-        public void run() {
-            while (true) {
-                SurfaceTexture surfaceTexture = null;
-                synchronized (mLock) {
-                    while (!mDone && (surfaceTexture = mSurfaceTexture) == null) {
-                        try {
-                            mLock.wait();
-                        } catch (InterruptedException ie) {
-                            throw new RuntimeException(ie);     // not expected
-                        }
-                    }
-                    if (mDone) {
-                        break;
-                    }
-                }
-
-                // Render frames until we're told to stop or the SurfaceTexture is destroyed.
-                doAnimation();
-            }
-
-        }
-        private void doAnimation() {
-            final int BLOCK_WIDTH = 80;
-            final int BLOCK_SPEED = 2;
-            int clearColor = 0;
-            int xpos = -BLOCK_WIDTH / 2;
-            int xdir = BLOCK_SPEED;
-
-            // Create a Surface for the SurfaceTexture.
-            Surface surface = null;
-            synchronized (mLock) {
-                SurfaceTexture surfaceTexture = mSurfaceTexture;
-                if (surfaceTexture == null) {
-
-                    return;
-                }
-                surface = new Surface(surfaceTexture);
-            }
-
-            Paint paint = new Paint();
-            paint.setColor(Color.TRANSPARENT);
-            paint.setStyle(Paint.Style.FILL);
-
-            //boolean partial = false;
-            ArrayList<Bitmap> frames = new ArrayList<>();
-            while (true && !frameModifier.isEmpty()) {
-                Rect dirty = null;
-                Canvas canvas = surface.lockCanvas(dirty);
-                if (canvas == null) {
-
-                    break;
-                }
-                try {
-                    //Paint p=new Paint();
-                    FrameHolder h = frameModifier.remove();
-                    frames.add(h.getBitmap());
-                    canvas.drawBitmap(h.getBitmap(), 0, 0, null);
-                } finally {
-                    try {
-                        surface.unlockCanvasAndPost(canvas);
-                    } catch (IllegalArgumentException iae) {
-
-                        break;
-                    }
-                }
-                try {
-                    sleep(67);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-
-
-            surface.release();
-            try {
-                saveFrames(frames);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-
-        public void halt() {
-            synchronized (mLock) {
-                mDone = true;
-                mLock.notify();
-            }
-        }
-
-        @Override   // will be called on UI thread
-        public void onSurfaceTextureAvailable(SurfaceTexture st, int width, int height) {
-            Log.i(TAG, " Texture available ");
-            mWidth = width;
-            mHeight = height;
-            FrameHolder.setViewWidth(mWidth);
-            FrameHolder.setViewHeight(mHeight);
-            synchronized (mLock) {
-                mSurfaceTexture = st;
-                mLock.notify();
-            }
-        }
-
-        @Override   // will be called on UI thread
-        public void onSurfaceTextureSizeChanged(SurfaceTexture st, int width, int height) {
-            Log.i(TAG, " Texture available ");
-            mWidth = width;
-            mHeight = height;
-            FrameHolder.setViewWidth(mWidth);
-            FrameHolder.setViewHeight(mHeight);
-        }
-
-        @Override   // will be called on UI thread
-        public boolean onSurfaceTextureDestroyed(SurfaceTexture st) {
-            synchronized (mLock) {
-                mSurfaceTexture = null;
-            }
-            return true;
-        }
-
-        @Override   // will be called on UI thread
-        public void onSurfaceTextureUpdated(SurfaceTexture st) {
-
         }
     }
     public void saveFrames(ArrayList<Bitmap> saveBitmapList) throws IOException{

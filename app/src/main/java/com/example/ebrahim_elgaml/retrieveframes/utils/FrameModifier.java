@@ -2,6 +2,8 @@ package com.example.ebrahim_elgaml.retrieveframes.utils;
 
 import android.util.Log;
 
+import com.example.ebrahim_elgaml.retrieveframes.MainActivity;
+
 import java.util.PriorityQueue;
 
 /**
@@ -16,6 +18,7 @@ public class FrameModifier {
         int index = 1;
         pQueue = new PriorityQueue<FrameHolder>(100, new IntegerComp());
         pQueue.add(previous);
+        MainActivity.frameHolders.add(previous);
         int myDiff = ++diffKeyFrames ;
         while(!q.isEmpty()){
             Log.i("MYRETRIEVERDEBUG", "KEYFRAME : " + index);
@@ -27,6 +30,7 @@ public class FrameModifier {
                 previous.makeDiff(temp);
             }
             pQueue.add(previous);
+            MainActivity.frameHolders.add(previous);
             index++;
 //            if(index == 8){
 //                break;
@@ -57,5 +61,11 @@ public class FrameModifier {
     }
     public int size(){
         return pQueue.size();
+    }
+    public void recreate(){
+        pQueue.clear();
+        for(FrameHolder f : MainActivity.frameHolders){
+            pQueue.add(f);
+        }
     }
 }

@@ -19,10 +19,33 @@
 
 
     <TextureView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+        android:layout_width="320px"
+        android:layout_height="180px"
         android:id="@+id/textureView"
         android:layout_below="@+id/textView"
         android:layout_centerHorizontal="true" />
+    <com.example.ebrahim_elgaml.retrieveframes.utils.MyView
+        android:layout_width="320px"
+        android:layout_height="180px"
+        android:id="@+id/myView"
+        android:layout_centerVertical="true"
+        android:layout_centerHorizontal="true" />
+
+    <Button
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:text="Play again"
+        android:id="@+id/button"
+        android:layout_alignParentBottom="true"
+        android:layout_alignParentRight="true"
+        android:layout_alignParentEnd="true" />
+
+    <EditText
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:id="@+id/editText"
+        android:layout_above="@+id/button"
+        android:layout_alignParentRight="true"
+        android:layout_alignParentEnd="true" />
 
 </RelativeLayout>
