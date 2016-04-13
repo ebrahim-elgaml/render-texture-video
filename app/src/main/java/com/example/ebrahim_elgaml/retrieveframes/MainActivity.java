@@ -20,6 +20,8 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
+
+import com.example.ebrahim_elgaml.retrieveframes.utils.AnimatedGifEncoder;
 import com.example.ebrahim_elgaml.retrieveframes.utils.FrameHolder;
 import com.example.ebrahim_elgaml.retrieveframes.utils.FrameModifier;
 import com.example.ebrahim_elgaml.retrieveframes.utils.IntegerComp;
@@ -69,11 +71,13 @@ public class MainActivity extends AppCompatActivity {
     public static ArrayList<FrameHolder> frameHolders = new ArrayList<>();
     private Button myButton;
     private EditText editText;
+    private AnimatedGifEncoder encoder;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         myView = (MyView)findViewById(R.id.myView);
+        encoder = new AnimatedGifEncoder();
         myTextView = (TextView)findViewById(R.id.textView);
         myButton = (Button)findViewById(R.id.button);
         editText = (EditText)findViewById(R.id.editText);
@@ -93,6 +97,7 @@ public class MainActivity extends AppCompatActivity {
         myButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                saveGIV();
                 frameModifier.recreate();
                 myView.setFrameModifier(frameModifier);
                 myView.setCanStart(true);
@@ -207,11 +212,11 @@ public class MainActivity extends AppCompatActivity {
             return true;
         }
     }
-    public void saveFrames(ArrayList<Bitmap> saveBitmapList) throws IOException{
+    public static void saveFrames(ArrayList<Bitmap> saveBitmapList, String path) throws IOException{
         Random r = new Random();
         int folder_id = r.nextInt(1000) + 1;
 
-        String folder = Environment.getExternalStorageDirectory()+"/testing/frames2/";
+        String folder = Environment.getExternalStorageDirectory()+"/testing/" + path;
         File saveFolder=new File(folder);
 //        if(!saveFolder.exists()){
 //            saveFolder.mkdirs();
@@ -271,5 +276,59 @@ public class MainActivity extends AppCompatActivity {
             e.printStackTrace();
         }
     }
+    public byte[] generateGIF() {
+        frameModifier.recreate();
+        ArrayList<Bitmap> bitmaps = new ArrayList<>();
+        int i = 0 ;
+        encoder.setRepeat(-1);
+       // encoder.setDelay(66);
+//        encoder.setFrameRate(15);
+        encoder.setSize(320, 180);
+        while(!frameModifier.getpQueue().isEmpty()){
+    //            if(i % 7 == 0 ){
+    //                bitmaps.add(frameModifier.remove().getBitmap());
+    //                Log.i(TAG, "ADD BITMAP ");
+    //            }else{
+    //                frameModifier.remove().getBitmap();
+    //            }
+            bitmaps.add(frameModifier.remove().getBitmap());
+            i++;
+        }
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        AnimatedGifEncoder encoder = new AnimatedGifEncoder();
+        encoder.start(bos);
+        for (Bitmap bitmap : bitmaps) {
+            encoder.addFrame(bitmap);
+        }
+        encoder.setDelay(66);
+        Log.i(TAG ,"Bitmaps gif size : " + bitmaps.size());
+        encoder.finish();
+        return bos.toByteArray();
+    }
+    public void saveGIV(){
+//        FileOutputStream outStream = null;
+        String folder = Environment.getExternalStorageDirectory()+"";
+        File saveFolder=new File(folder);
+        File f = new File(saveFolder,("test"+".gif"));
+        try {
+            FileOutputStream fo = new FileOutputStream(f);
+            fo.write(generateGIF());
+            fo.flush();
+            fo.close();
+
+        } catch (IOException e) {
+            Log.i(TAG, "EXCEPTION ");
+            e.printStackTrace();
+        }
+//        try{
+//            outStream = new FileOutputStream("/sdcard/test.gif");
+//            outStream.write(generateGIF());
+//            outStream.close();
+//        }catch(Exception e){
+//            Log.i(TAG, "EXCEPTION ");
+//            e.printStackTrace();
+//        }
+    }
+
 
 }
