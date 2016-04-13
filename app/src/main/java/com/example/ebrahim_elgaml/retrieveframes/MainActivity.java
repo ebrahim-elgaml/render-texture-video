@@ -97,7 +97,7 @@ public class MainActivity extends AppCompatActivity {
         myButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                saveGIV();
+                //saveGIV();
                 frameModifier.recreate();
                 myView.setFrameModifier(frameModifier);
                 myView.setCanStart(true);
